@@ -1,0 +1,52 @@
+name: One-time IC-Coder main history rewrite
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rewrite-main-history.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rewrite-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the trigger commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Replace main with a RyanFPGA-only root
+        env:
+          EXPECTED_OLD_MAIN: 5ba0dcd0240c4c496c0cee4930e581c57338c809
+          EXPECTED_README_BLOB: 60309432f0fcafcfd75f941ce2ffe4f669a85713
+          GIT_AUTHOR_NAME: 蔡杰涛（Ryan）
+          GIT_AUTHOR_EMAIL: 164719587+RyanFPGA@users.noreply.github.com
+          GIT_COMMITTER_NAME: 蔡杰涛（Ryan）
+          GIT_COMMITTER_EMAIL: 164719587+RyanFPGA@users.noreply.github.com
+          GIT_AUTHOR_DATE: 2026-09-02T17:45:00+08:00
+          GIT_COMMITTER_DATE: 2026-09-02T17:45:00+08:00
+        run: |
+          set -euo pipefail
+          trigger_sha="$GITHUB_SHA"
+          parent_sha="$(git rev-parse "$trigger_sha^" 2>/dev/null || true)"
+
+          if [ -z "$parent_sha" ]; then
+            echo "Clean root already installed; no further rewrite needed."
+            exit 0
+          fi
+
+          test "$parent_sha" = "$EXPECTED_OLD_MAIN"
+          test "$(git rev-parse "$parent_sha:README.md")" = "$EXPECTED_README_BLOB"
+          expected_paths="$(printf '%s\n' '.github/workflows/rewrite-main-history.yml' 'README.md')"
+          actual_paths="$(git ls-tree -r --name-only "$trigger_sha" | sort)"
+          test "$actual_paths" = "$expected_paths"
+
+          tree_id="$(git rev-parse "$trigger_sha^{tree}")"
+          new_commit="$(git commit-tree "$tree_id" -m 'chore: establish clean IC Coder public repository baseline' -m "Preserve the reviewed README while replacing the previous main history at the repository owner's explicit request.")"
+          test "$(git rev-list --parents -n 1 "$new_commit" | awk '{print NF}')" -eq 1
+
+          git push --force-with-lease=refs/heads/main:"$trigger_sha" origin "$new_commit:refs/heads/main"
